@@ -5,6 +5,15 @@ import { Telegraf, session } from 'telegraf';
 import socksProxyAgentPkg from 'socks-proxy-agent';
 import moment from 'jalali-moment';
 
+const STAGES = {
+  started: "started",
+  cancel: "cancel",
+  chooseRoute: "chooseRoute",
+  chooseDate: "chooseDate",
+  acceptDate: "acceptDate",
+  chooseTime: "chooseTime",
+}
+
 const apiUrl = 'https://ws.alibaba.ir/api/v2/train/available/';
 
 const params = {
@@ -24,7 +33,13 @@ const params = {
   "ForceUpdate": null
 }
 
-let reserveList = [];
+const reserveList = [];
+
+const userList = [
+  1306678508, // @pmahdicheraghi (admin)
+  103475519, // @SAHosseini557
+  122463137, // @MeyBS
+];
 
 const bot = new Telegraf(process.env.BOT_TOKEN, process.env.SOCKS_PROXY_HOST && {
   telegram: {
@@ -37,30 +52,30 @@ const bot = new Telegraf(process.env.BOT_TOKEN, process.env.SOCKS_PROXY_HOST && 
 
 bot.use(session())
 
-bot.start((ctx) => ctx.reply("به ربات رزرو بلیط خوش آمدید.\n برای رزرو بلیط دستور /reserve را ارسال کنید\nو برای کنسل کردن دستور /cancel را ارسال کنید."))
-
-bot.command('reserve', (ctx) => {
-  ctx.session = {
-    stage: 'chooseRoute',
+bot.start((ctx) => {
+  if (userList.includes(ctx.from.id)) {
+    ctx.session = { stage: STAGES.started }
+    ctx.reply("به ربات رصد بلیط خوش آمدید.\n برای رصد بلیط دستور /watch را ارسال کنید\nو برای کنسل کردن دستور /cancel را ارسال کنید.");
   }
-  ctx.reply('مبدا و مقصدت رو انتخاب کن', {
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: 'تهران به قم', callback_data: 'reserveTehranToQom' }],
-        [{ text: 'قم به تهران', callback_data: 'reserveQomToTehran' }],
-      ]
-    }
-  });
+  else {
+    ctx.reply("به ربات رصد بلیط خوش آمدید.\nشما حساب فعال ندارید.\nبرای ثبت نام در بات دستور /register را ارسال کنید.");
+  }
+})
+
+bot.command('register', (ctx) => {
+  ctx.reply("فعلا ثبت نام از طریق ربات امکان پذیر نیست.\nدرخواست شما به ادمین ارسال شد.");
+  bot.telegram.sendMessage(userList[0], `کاربر جدیدی درخواست ثبت نام کرده است.\nنام کاربری: ‎@${ctx.from.username}\nنام: ${ctx.from.first_name} ${ctx.from.last_name}\nآی دی: ${ctx.from.id}`);
 })
 
 bot.command('cancel', (ctx) => {
+  if (ctx.session?.stage !== STAGES.started) {
+    return;
+  }
   const userReserveList = reserveList.filter(({ user }) => user === ctx.from.id);
   if (userReserveList.length === 0) {
     ctx.reply('شما هیچ رزروی ندارید')
   } else {
-    ctx.session = {
-      stage: 'cancel',
-    }
+    ctx.session = { stage: STAGES.cancel }
     ctx.reply('کدام رزرو را میخواهید کنسل کنید؟', {
       reply_markup: {
         inline_keyboard: userReserveList.map(({ from, to, date, time }, index) => ([{ text: `${getCity(from)} به ${getCity(to)} - ${moment.utc(date).format('jYYYY/jMM/jDD')} - ${getTime(time)}`, callback_data: `cancel${index}` }]))
@@ -70,75 +85,104 @@ bot.command('cancel', (ctx) => {
 })
 
 bot.action(/cancel(.*)/, (ctx) => {
-  if (ctx.session?.stage !== 'cancel') {
+  if (ctx.session?.stage !== STAGES.cancel) {
     return;
   }
   ctx.answerCbQuery()
-  ctx.session = {}
+  ctx.session = { stage: STAGES.started }
   reserveList.splice(ctx.match[1], 1);
   ctx.reply('رزرو شما کنسل شد')
 })
 
-bot.action('reserveTehranToQom', (ctx) => {
-  if (ctx.session?.stage !== 'chooseRoute') {
+bot.command('watch', (ctx) => {
+  if (ctx.session?.stage !== STAGES.started) {
     return;
   }
-  ctx.answerCbQuery()
-  ctx.session = {
-    ...ctx.session,
-    stage: 'chooseDate',
-    from: 1,
-    to: 161,
-  }
-  ctx.reply('تاریخ حرکت رو انتخاب کن')
+  ctx.session = { stage: STAGES.chooseRoute }
+  ctx.reply('مبدا و مقصدت رو انتخاب کن', {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: 'تهران به قم', callback_data: 'route1-161' }],
+        [{ text: 'قم به تهران', callback_data: 'route161-1' }],
+      ]
+    }
+  });
 })
 
-bot.action('reserveQomToTehran', (ctx) => {
-  if (ctx.session?.stage !== 'chooseRoute') {
+bot.action(/route(.*)-(.*)/, (ctx) => {
+  if (ctx.session?.stage !== STAGES.chooseRoute) {
     return;
   }
   ctx.answerCbQuery()
   ctx.session = {
     ...ctx.session,
-    stage: 'chooseDate',
-    from: 161,
-    to: 1,
+    stage: STAGES.chooseDate,
+    from: ctx.match[1],
+    to: ctx.match[2],
   }
-  ctx.reply('روز حرکت رو وارد کن')
+  ctx.reply('روز حرکت رو به صورت عدد وارد کن (مثلا "۱۸")')
 })
 
 bot.on('text', (ctx) => {
-  if (ctx.session?.stage !== 'chooseDate') {
+  if (ctx.session?.stage !== STAGES.chooseDate) {
     return;
   }
   const newDate = getDate(ctx.message.text);
-  const newParams = {
-    ...params,
-    From: ctx.session?.from,
-    To: ctx.session?.to,
-    DepartureDate: newDate,
-  }
   ctx.session = {
     ...ctx.session,
-    stage: 'chooseTime',
+    stage: STAGES.acceptDate,
     date: newDate,
   }
-  axios.get(apiUrl + encode(newParams))
-    .then(response => {
-      ctx.reply('ساعت حرکت رو انتخاب کن', {
-        reply_markup: {
-          inline_keyboard: response.data.result.departing.map(({ seat, departureDateTime, fullPrice }) => ([{ text: `${getCity(ctx.session?.from)} به ${getCity(ctx.session?.to)} ${getTime(departureDateTime)} - ${fullPrice} - ${seat}`, callback_data: `reserve${departureDateTime}` }]))
-        }
-      })
-    }, error => {
-      console.log(error);
-      ctx.reply('دریافت اطلاعات با خطا مواجه شد. لطفا دوباره تلاش کنید')
-    })
+  ctx.reply(`تاریخ حرکت رو تایید میکنی؟\n${newDate.format('jYYYY/jMM/jDD')}`, {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: 'بله', callback_data: 'accyes' }, { text: 'خیر', callback_data: 'accno' }],
+      ]
+    }
+  });
+})
 
+bot.action(/acc(.*)/, (ctx) => {
+  if (ctx.session?.stage !== STAGES.acceptDate) {
+    return;
+  }
+  ctx.answerCbQuery()
+  if (ctx.match[1] === 'no') {
+    ctx.session = {
+      ...ctx.session,
+      stage: STAGES.chooseDate
+    }
+    ctx.reply('روز حرکت رو به صورت عدد وارد کن (مثلا "۱۸")')
+  }
+  else {
+    const newDate = toMiladi(ctx.session?.date);
+    const newParams = {
+      ...params,
+      From: ctx.session?.from,
+      To: ctx.session?.to,
+      DepartureDate: newDate,
+    }
+    ctx.session = {
+      ...ctx.session,
+      stage: STAGES.chooseTime,
+      date: newDate,
+    }
+    axios.get(apiUrl + encode(newParams))
+      .then(response => {
+        ctx.reply('ساعت حرکت رو انتخاب کن', {
+          reply_markup: {
+            inline_keyboard: response.data.result.departing.map(({ seat, departureDateTime, fullPrice }) => ([{ text: `${getCity(ctx.session?.from)} به ${getCity(ctx.session?.to)} ${getTime(departureDateTime)} - ${fullPrice} - ${seat}`, callback_data: `reserve${departureDateTime}` }]))
+          }
+        })
+      }, error => {
+        console.log(error);
+        ctx.reply('دریافت اطلاعات با خطا مواجه شد. لطفا دوباره تلاش کنید')
+      })
+  }
 })
 
 bot.action(/reserve(.*)/, (ctx) => {
-  if (ctx.session?.stage !== 'chooseTime') {
+  if (ctx.session?.stage !== STAGES.chooseTime) {
     return;
   }
   ctx.answerCbQuery()
@@ -148,23 +192,26 @@ bot.action(/reserve(.*)/, (ctx) => {
     date: ctx.session?.date,
     time: ctx.match[1],
     user: ctx.from.id,
-  })
-  ctx.session = {}
-  ctx.reply('درخواست رزرو شما ثبت شد')
+  });
+  checkReservation(ctx.session?.from, ctx.session?.to, ctx.session?.date, ctx.match[1], ctx.from.id);
+  ctx.session = { stage: STAGES.started }
+  ctx.reply('درخواست رصد شما ثبت شد')
 })
 
 bot.launch()
-
-setInterval(checkReserveList, 1000 * 60 * 1);
 
 // Enable graceful stop
 process.once('SIGINT', () => bot.stop('SIGINT'))
 process.once('SIGTERM', () => bot.stop('SIGTERM'))
 
 function getDate(jDay) {
-  const jalaliMonth = moment().jMonth() + 1;
+  const jalaliMonth = moment().jMonth() + (moment().jDate() > parseInt(fixNumbers(jDay)) ? 2 : 1)
   const jalaliYear = moment().jYear();
   const jalaliDate = moment(`${jalaliYear}/${jalaliMonth}/${fixNumbers(jDay)}`, 'jYYYY/jMM/jDD');
+  return jalaliDate;
+}
+
+function toMiladi(jalaliDate) {
   return `${jalaliDate.format('YYYY-MM-DD')}T00:00:00`;
 }
 
@@ -172,6 +219,14 @@ function getCity(id) {
   const cities = {
     1: 'تهران',
     161: 'قم',
+  }
+  return cities[id];
+}
+
+function getEnCity(id) {
+  const cities = {
+    1: 'THR',
+    161: 'QUM',
   }
   return cities[id];
 }
@@ -184,26 +239,38 @@ function getTime(date) {
   return moment(date).format('HH:mm');
 }
 
-function checkReserveList() {
-  reserveList = reserveList.filter(({ time }) => moment(time).isAfter(moment()));
-  reserveList.forEach(({ from, to, date, time, user }) => {
-    const newParams = {
-      ...params,
-      From: from,
-      To: to,
-      DepartureDate: date,
-    }
-    axios.get(apiUrl + encode(newParams))
-      .then(response => {
-        const result = response.data.result.departing.find(({ departureDateTime, seat }) => departureDateTime === time && seat > 0);
-        if (result) {
-          bot.telegram.sendMessage(user, `بلیط شما آماده‌ی رزرو است.\n${getCity(from)} به ${getCity(to)} - ${moment.utc(date).format('jYYYY/jMM/jDD')} - ${getTime(time)} - ${result.fullPrice} - ${result.seat}`)
-          reserveList.splice(reserveList.findIndex(({ from: f, to: t, date: d, time: t2, user: u }) => from === f && to === t && date === d && time === t2 && user === u), 1);
-        }
-      }, error => {
-        console.log(error);
-      })
-  })
+function checkReservation(from, to, date, time, user) {
+  const reserveIndex = reserveList.findIndex(({ user: u, from: f, to: t, date: d, time: ti }) => u === user && f === from && t === to && d === date && ti === time);
+  if (reserveIndex === -1) {
+    return;
+  }
+  if (!moment(time).isAfter(moment())) {
+    reserveList.splice(reserveIndex, 1);
+    return;
+  }
+
+  const newParams = {
+    ...params,
+    From: from,
+    To: to,
+    DepartureDate: date,
+  }
+
+  axios.get(apiUrl + encode(newParams))
+    .then(response => {
+      const result = response.data.result.departing.find(({ departureDateTime, seat }) => departureDateTime === time && seat > 0);
+      if (result) {
+        bot.telegram.sendMessage(user, `بلیط شما آماده‌ی رزرو است.\n${getCity(from)} به ${getCity(to)} - ${moment.utc(date).format('jYYYY/jMM/jDD')} - ${getTime(time)} - ${result.fullPrice} - ${result.seat}\nhttps://www.alibaba.ir/train/${getEnCity(from)}-${getEnCity(to)}?adult=1&child=0&infant=0&departing=${moment.utc(date).format('jYYYY/jMM/jDD')}&ticketType=Family&isExclusive=false&isTransitCar=false`)
+        const reserveIndex = reserveList.findIndex(({ user: u, from: f, to: t, date: d, time: ti }) => u === user && f === from && t === to && d === date && ti === time);
+        reserveList.splice(reserveIndex, 1);
+      }
+    }, error => {
+      console.log(error);
+    })
+
+  setTimeout(() => {
+    checkReservation(from, to, date, time, user);
+  }, Math.round(moment(time).diff(moment()) / (24 * 60)) + 10000); // 10 sec + 1 min per day
 }
 
 function fixNumbers(str) {

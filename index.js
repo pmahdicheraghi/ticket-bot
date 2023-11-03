@@ -4,6 +4,7 @@ import utf8 from "utf8";
 import { Telegraf, session } from 'telegraf';
 import socksProxyAgentPkg from 'socks-proxy-agent';
 import moment from 'jalali-moment';
+import uniqid from 'uniqid';
 
 const STAGES = {
   started: "started",
@@ -39,6 +40,8 @@ const userList = [
   1306678508, // @pmahdicheraghi (admin)
   103475519, // @SAHosseini557
   122463137, // @MeyBS
+  583216604, // @Whitte_Nightt
+  2070367514, // @Dr_Farghadani
 ];
 
 const bot = new Telegraf(process.env.BOT_TOKEN, process.env.SOCKS_PROXY_HOST && {
@@ -186,16 +189,40 @@ bot.action(/reserve(.*)/, (ctx) => {
     return;
   }
   ctx.answerCbQuery()
+  const id = uniqid();
   reserveList.push({
+    id,
     from: ctx.session?.from,
     to: ctx.session?.to,
     date: ctx.session?.date,
     time: ctx.match[1],
     user: ctx.from.id,
+    notify: true,
   });
-  checkReservation(ctx.session?.from, ctx.session?.to, ctx.session?.date, ctx.match[1], ctx.from.id);
   ctx.session = { stage: STAGES.started }
   ctx.reply('درخواست رصد شما ثبت شد')
+  checkReservation(id);
+})
+
+bot.action(/buyConfirm(.*)/, (ctx) => {
+  ctx.answerCbQuery()
+  const reserveIndex = reserveList.findIndex(({ id }) => id === ctx.match[1]);
+  if (reserveIndex === -1) {
+    return;
+  }
+  reserveList.splice(reserveIndex, 1);
+  ctx.reply('تایید شد');
+})
+
+bot.action(/buyRetry(.*)/, (ctx) => {
+  ctx.answerCbQuery()
+  const reserveIndex = reserveList.findIndex(({ id }) => id === ctx.match[1]);
+  if (reserveIndex === -1) {
+    return;
+  }
+  reserveList[reserveIndex].notify = true;
+  checkReservation(ctx.match[1]);
+  ctx.reply('درخواست رصد شما ثبت شد');
 })
 
 bot.launch()
@@ -239,38 +266,43 @@ function getTime(date) {
   return moment(date).format('HH:mm');
 }
 
-function checkReservation(from, to, date, time, user) {
-  const reserveIndex = reserveList.findIndex(({ user: u, from: f, to: t, date: d, time: ti }) => u === user && f === from && t === to && d === date && ti === time);
-  if (reserveIndex === -1) {
+function checkReservation(id) {
+  const reserveIndex = reserveList.findIndex((reserve) => reserve.id === id);
+  if (reserveIndex === -1 || reserveList[reserveIndex].notify === false) {
     return;
   }
-  if (!moment(time).isAfter(moment())) {
+  if (!moment(reserveList[reserveIndex].time).isAfter(moment())) {
     reserveList.splice(reserveIndex, 1);
     return;
   }
 
   const newParams = {
     ...params,
-    From: from,
-    To: to,
-    DepartureDate: date,
+    From: reserveList[reserveIndex].from,
+    To: reserveList[reserveIndex].to,
+    DepartureDate: reserveList[reserveIndex].date,
   }
 
   axios.get(apiUrl + encode(newParams))
-    .then(response => {
-      const result = response.data.result.departing.find(({ departureDateTime, seat }) => departureDateTime === time && seat > 0);
+    .then((response) => {
+      const result = response.data.result.departing.find(({ departureDateTime, seat }) => departureDateTime === reserveList[reserveIndex].time && seat > 0);
       if (result) {
-        bot.telegram.sendMessage(user, `بلیط شما آماده‌ی رزرو است.\n${getCity(from)} به ${getCity(to)} - ${moment.utc(date).format('jYYYY/jMM/jDD')} - ${getTime(time)} - ${result.fullPrice} - ${result.seat}\nhttps://www.alibaba.ir/train/${getEnCity(from)}-${getEnCity(to)}?adult=1&child=0&infant=0&departing=${moment.utc(date).format('jYYYY/jMM/jDD')}&ticketType=Family&isExclusive=false&isTransitCar=false`)
-        const reserveIndex = reserveList.findIndex(({ user: u, from: f, to: t, date: d, time: ti }) => u === user && f === from && t === to && d === date && ti === time);
-        reserveList.splice(reserveIndex, 1);
+        bot.telegram.sendMessage(reserveList[reserveIndex].user,
+          `بلیط شما آماده‌ی رزرو است.\n${getCity(reserveList[reserveIndex].from)} به ${getCity(reserveList[reserveIndex].to)} - ${moment.utc(reserveList[reserveIndex].date).format('jYYYY/jMM/jDD')} - ${getTime(reserveList[reserveIndex].time)} - ${result.fullPrice} - ${result.seat}\nhttps://www.alibaba.ir/train/${getEnCity(reserveList[reserveIndex].from)}-${getEnCity(reserveList[reserveIndex].to)}?adult=1&child=0&infant=0&departing=${moment.utc(reserveList[reserveIndex].date).format('jYYYY/jMM/jDD')}&ticketType=Family&isExclusive=false&isTransitCar=false`,
+          {
+            reply_markup: {
+              inline_keyboard: [[{ text: 'خریدم', callback_data: `buyConfirm${id}` }, { text: 'دوباره', callback_data: `buyRetry${id}` }]]
+            }
+          })
+        reserveList[reserveIndex].notify = false;
       }
-    }, error => {
+    }, (error) => {
       console.log(error);
     })
 
   setTimeout(() => {
-    checkReservation(from, to, date, time, user);
-  }, Math.round(moment(time).diff(moment()) / (24 * 60)) + 10000); // 10 sec + 1 min per day
+    checkReservation(id);
+  }, Math.round(moment(reserveList[reserveIndex].time).diff(moment()) / (24 * 60)) + 10000); // 10 sec + 1 min per day
 }
 
 function fixNumbers(str) {
@@ -282,4 +314,4 @@ function fixNumbers(str) {
     }
   }
   return str;
-};
+}

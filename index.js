@@ -107,6 +107,7 @@ bot.command('watch', (ctx) => {
       inline_keyboard: [
         [{ text: 'تهران به قم', callback_data: 'route1-161' }],
         [{ text: 'قم به تهران', callback_data: 'route161-1' }],
+        [{ text: 'تربت‌حیدریه به تهران', callback_data: 'route251-1' }],
       ]
     }
   });
@@ -246,6 +247,7 @@ function getCity(id) {
   const cities = {
     1: 'تهران',
     161: 'قم',
+    251: "تربت‌حیدریه"
   }
   return cities[id];
 }
@@ -254,6 +256,7 @@ function getEnCity(id) {
   const cities = {
     1: 'THR',
     161: 'QUM',
+    251: "TRBTHDR"
   }
   return cities[id];
 }

@@ -38,10 +38,10 @@ const reserveList = [];
 
 const userList = [
   1306678508, // @pmahdicheraghi (admin)
-  103475519, // @SAHosseini557
-  122463137, // @MeyBS
-  583216604, // @Whitte_Nightt
-  2070367514, // @Dr_Farghadani
+  // 103475519, // @SAHosseini557
+  // 122463137, // @MeyBS
+  // 583216604, // @Whitte_Nightt
+  // 2070367514, // @Dr_Farghadani
 ];
 
 const bot = new Telegraf(process.env.BOT_TOKEN, process.env.SOCKS_PROXY_HOST && {
@@ -107,7 +107,6 @@ bot.command('watch', (ctx) => {
       inline_keyboard: [
         [{ text: 'تهران به قم', callback_data: 'route1-161' }],
         [{ text: 'قم به تهران', callback_data: 'route161-1' }],
-        [{ text: 'تربت‌حیدریه به تهران', callback_data: 'route251-1' }],
       ]
     }
   });
@@ -247,7 +246,6 @@ function getCity(id) {
   const cities = {
     1: 'تهران',
     161: 'قم',
-    251: "تربت‌حیدریه"
   }
   return cities[id];
 }
@@ -256,7 +254,6 @@ function getEnCity(id) {
   const cities = {
     1: 'THR',
     161: 'QUM',
-    251: "TRBTHDR"
   }
   return cities[id];
 }

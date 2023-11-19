@@ -37,40 +37,38 @@ const params = {
 const reserveList = [];
 
 const userList = [
-  1306678508, // @pmahdicheraghi (admin)
+  630506220, // @pmahdicheraghi (admin)
   // 103475519, // @SAHosseini557
   // 122463137, // @MeyBS
   // 583216604, // @Whitte_Nightt
   // 2070367514, // @Dr_Farghadani
 ];
 
-const bot = new Telegraf(process.env.BOT_TOKEN, process.env.SOCKS_PROXY_HOST && {
+const bot = new Telegraf(process.env.BOT_TOKEN, {
   telegram: {
-    agent: new socksProxyAgentPkg.SocksProxyAgent({
-      host: process.env.SOCKS_PROXY_HOST,
-      port: process.env.SOCKS_PROXY_PORT,
-    }),
+    apiRoot: "https://tapi.bale.ai/",
   },
 });
 
 bot.use(session())
 
-bot.start((ctx) => {
+bot.hears('/start', (ctx) => {
   if (userList.includes(ctx.from.id)) {
     ctx.session = { stage: STAGES.started }
     ctx.reply("به ربات رصد بلیط خوش آمدید.\n برای رصد بلیط دستور /watch را ارسال کنید\nو برای کنسل کردن دستور /cancel را ارسال کنید.");
   }
   else {
+    console.log(ctx.from.id);
     ctx.reply("به ربات رصد بلیط خوش آمدید.\nشما حساب فعال ندارید.\nبرای ثبت نام در بات دستور /register را ارسال کنید.");
   }
 })
 
-bot.command('register', (ctx) => {
+bot.hears('/register', (ctx) => {
   ctx.reply("فعلا ثبت نام از طریق ربات امکان پذیر نیست.\nدرخواست شما به ادمین ارسال شد.");
   bot.telegram.sendMessage(userList[0], `کاربر جدیدی درخواست ثبت نام کرده است.\nنام کاربری: ‎@${ctx.from.username}\nنام: ${ctx.from.first_name} ${ctx.from.last_name}\nآی دی: ${ctx.from.id}`);
 })
 
-bot.command('cancel', (ctx) => {
+bot.hears('/cancel', (ctx) => {
   if (ctx.session?.stage !== STAGES.started) {
     return;
   }
@@ -91,13 +89,13 @@ bot.action(/cancel(.*)/, (ctx) => {
   if (ctx.session?.stage !== STAGES.cancel) {
     return;
   }
-  ctx.answerCbQuery()
+  // ctx.answerCbQuery()
   ctx.session = { stage: STAGES.started }
   reserveList.splice(ctx.match[1], 1);
   ctx.reply('رزرو شما کنسل شد')
 })
 
-bot.command('watch', (ctx) => {
+bot.hears('/watch', (ctx) => {
   if (ctx.session?.stage !== STAGES.started) {
     return;
   }
@@ -116,7 +114,7 @@ bot.action(/route(.*)-(.*)/, (ctx) => {
   if (ctx.session?.stage !== STAGES.chooseRoute) {
     return;
   }
-  ctx.answerCbQuery()
+  // ctx.answerCbQuery()
   ctx.session = {
     ...ctx.session,
     stage: STAGES.chooseDate,
@@ -149,7 +147,7 @@ bot.action(/acc(.*)/, (ctx) => {
   if (ctx.session?.stage !== STAGES.acceptDate) {
     return;
   }
-  ctx.answerCbQuery()
+  // ctx.answerCbQuery()
   if (ctx.match[1] === 'no') {
     ctx.session = {
       ...ctx.session,
@@ -188,7 +186,7 @@ bot.action(/reserve(.*)/, (ctx) => {
   if (ctx.session?.stage !== STAGES.chooseTime) {
     return;
   }
-  ctx.answerCbQuery()
+  // ctx.answerCbQuery()
   const id = uniqid();
   reserveList.push({
     id,
@@ -205,7 +203,7 @@ bot.action(/reserve(.*)/, (ctx) => {
 })
 
 bot.action(/buyConfirm(.*)/, (ctx) => {
-  ctx.answerCbQuery()
+  // ctx.answerCbQuery()
   const reserveIndex = reserveList.findIndex(({ id }) => id === ctx.match[1]);
   if (reserveIndex === -1) {
     return;
@@ -215,7 +213,7 @@ bot.action(/buyConfirm(.*)/, (ctx) => {
 })
 
 bot.action(/buyRetry(.*)/, (ctx) => {
-  ctx.answerCbQuery()
+  // ctx.answerCbQuery()
   const reserveIndex = reserveList.findIndex(({ id }) => id === ctx.match[1]);
   if (reserveIndex === -1) {
     return;

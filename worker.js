@@ -3,6 +3,12 @@ const SECRET = self.SECRET_PATH
 const ADMIN_ID = self.ADMIN_ID
 const WEBHOOK = '/endpoint'
 
+const CITIES = {
+  "1": {en: "THR", fa: 'تهران'},
+  "161": {en: "QUM", fa: 'قم'},
+  "191": {en: "MHD", fa: 'مشهد'},
+}
+
 const aliBabaApiUrl = 'https://ws.alibaba.ir/api/v2/train/available/';
 
 const params = {
@@ -227,16 +233,34 @@ async function onCallbackQuery(callbackQuery) {
     }
     await reserveList.delete(id);
     return sendPlainText(callbackQuery.message.chat.id, 'رزرو شما کنسل شد');
-  } else if (callbackQuery.data.startsWith('route')) {
+  } else if (callbackQuery.data.startsWith('start')) {
     const id = uid()
-    const from = callbackQuery.data.split("route")[1];
-    const to = callbackQuery.data.split("route")[2];
-    await reserveList.put(id, JSON.stringify({ from, to, user: callbackQuery.message.chat.id }))
-    return sendInlineButtons(callbackQuery.message.chat.id, 'روز حرکت را انتخاب کن', [
-      [{ text: 'امروز', callback_data: `day0day${id}` }],
-      [{ text: 'فردا', callback_data: `day1day${id}` }],
-      [{ text: 'پس فردا', callback_data: `day2day${id}` }],
-    ])
+    const from = callbackQuery.data.split("start")[1];
+    await reserveList.put(id, JSON.stringify({ from, user: callbackQuery.message.chat.id }))
+    return sendInlineButtons(callbackQuery.message.chat.id, 'مقصد رو انتخاب کن', 
+      Object.entries(CITIES).filter(([key]) => key !== from).map(([key, value]) => (
+        [{ text: value.fa, callback_data: `end${key}end${id}` }]
+      ))
+    )
+  } else if (callbackQuery.data.startsWith('end')) {
+    const id = callbackQuery.data.split("end")[2];
+    const reserve = await reserveList.get(id);
+    if (!reserve) {
+      return sendPlainText(callbackQuery.message.chat.id, 'رزرو پیدا نشد')
+    }
+    const to = callbackQuery.data.split("end")[1];
+    const parsedReserve = JSON.parse(reserve);
+    await reserveList.put(id, JSON.stringify({ to, ...parsedReserve }));
+    return sendInlineButtons(callbackQuery.message.chat.id, 'روز حرکت را انتخاب کن',
+    [0, 1, 2, 3, 4].map((i) => (
+      [0, 1, 2, 3, 4, 5, 6].map((j) => (
+        {
+          text: getDateDayAfter(7 * i + j).toLocaleDateString('fr-CA-u-ca-persian', { year: 'numeric', month: '2-digit', day: '2-digit' }).slice(8, 10),
+          callback_data: `day${7 * i + j}day${id}`
+        }
+      ))
+    ))
+  )
   } else if (callbackQuery.data.startsWith('day')) {
     const id = callbackQuery.data.split("day")[2];
     const reserve = await reserveList.get(id);
@@ -244,8 +268,7 @@ async function onCallbackQuery(callbackQuery) {
       return sendPlainText(callbackQuery.message.chat.id, 'رزرو پیدا نشد')
     }
     const day = callbackQuery.data.split("day")[1];
-    const currentDate = new Date();
-    currentDate.setDate(currentDate.getDate() + Number(day));
+    const currentDate = getDateDayAfter(Number(day));
     const parsedReserve = JSON.parse(reserve);
     await reserveList.put(id, JSON.stringify({ date: currentDate, ...parsedReserve }));
     const res = await (await fetch(aliBabaApiUrl + encode({
@@ -255,7 +278,7 @@ async function onCallbackQuery(callbackQuery) {
       DepartureDate: getDateString(currentDate) + 'T00:00:00',
     }))).json()
     if (res.result) {
-      return sendInlineButtons(callbackQuery.message.chat.id, 'ساعت حرکت رو انتخاب کن', res.result.departing?.map(({ seat, departureDateTime, fullPrice }) => ([{ text: `${getCity(parsedReserve.from, 'fa')} به ${getCity(parsedReserve.to, 'fa')} - ${getTimeString(departureDateTime, 'fa')} - ${fullPrice} - ${seat}`, callback_data: `reserve${departureDateTime}reserve${id}` }])))
+      return sendInlineButtons(callbackQuery.message.chat.id, 'ساعت حرکت رو انتخاب کن', res.result.departing?.map(({ seat, departureDateTime, fullPrice }) => ([{ text: `${CITIES[parsedReserve.from].fa} به ${CITIES[parsedReserve.to].fa} - ${getTimeString(departureDateTime, 'fa')} - ${fullPrice} - ${seat}`, callback_data: `reserve${departureDateTime}reserve${id}` }])))
     } else {
       return sendPlainText(callbackQuery.message.chat.id, 'دریافت اطلاعات با خطا مواجه شد. لطفا دوباره تلاش کنید')
     }
@@ -335,17 +358,18 @@ async function onMessage(message) {
         const reserve = await reserveList.get(reserves.keys[i].name);
         const parsedReserve = JSON.parse(reserve);
         buttons.push([{
-          text: `${getCity(parsedReserve.from, 'fa')} به ${getCity(parsedReserve.to, 'fa')} - ${getDateString(parsedReserve.date, 'fa')} - ${getTimeString(parsedReserve.time, 'fa')}`,
+          text: `${CITIES[parsedReserve.from]?.fa} به ${CITIES[parsedReserve.to]?.fa} - ${getDateString(parsedReserve.date, 'fa')} - ${getTimeString(parsedReserve.time, 'fa')}`,
           callback_data: `cancel${reserves.keys[i].name}`
         }])
       }
       return sendInlineButtons(message.chat.id, 'کدام رزرو را میخواهید کنسل کنید؟', buttons);
     }
   } else if (message.text.startsWith('/watch')) {
-    return sendInlineButtons(message.chat.id, 'مبدا و مقصدت رو انتخاب کن', [
-      [{ text: 'تهران به قم', callback_data: 'route1route161' }],
-      [{ text: 'قم به تهران', callback_data: 'route161route1' }],
-    ])
+    return sendInlineButtons(message.chat.id, 'مبدا رو انتخاب کن', 
+      Object.entries(CITIES).map(([key, value]) => (
+        [{ text: value.fa, callback_data: `start${key}` }]
+      ))
+    )
   } else {
     return sendPlainText(message.chat.id, escapeMarkdown('*Unknown command:* `' + message.text + '`\n' + 'Use /help to see available commands.', '*`'), "MarkdownV2")
   }
@@ -358,16 +382,8 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
-function getCity(id, lang) {
-  const citiesFa = {
-    "1": 'تهران',
-    "161": 'قم',
-  }
-  const citiesEn = {
-    "1": 'THR',
-    "161": 'QUM',
-  }
-  return lang === 'fa' ? citiesFa[id] : citiesEn[id];
+function getDateDayAfter(dayAfter = 0) {
+  return new Date(new Date().getTime() + 24 * 60 * 60 * 1000 * dayAfter)
 }
 
 function getDateString(date, lang) {
@@ -417,7 +433,7 @@ async function checkReservation(id) {
       await reserveList.put(id, JSON.stringify({ ...parsedReserve, notify: false }));
       await sendInlineButtons(
         parsedReserve.user,
-        `بلیط شما آماده‌ی رزرو است.\n${getCity(parsedReserve.from, 'fa')} به ${getCity(parsedReserve.to, 'fa')} - ${getDateString(parsedReserve.date, 'fa')} - ${getTimeString(parsedReserve.time, 'fa')} - ${result.fullPrice} - ${result.seat}\nhttps://www.alibaba.ir/train/${getCity(parsedReserve.from)}-${getCity(parsedReserve.to)}?adult=1&child=0&infant=0&departing=${new Date(parsedReserve.date).toLocaleDateString('fr-CA-u-ca-persian', { year: 'numeric', month: '2-digit', day: '2-digit' }).slice(0, 10)}&ticketType=Family&isExclusive=false&isTransitCar=false`,
+        `بلیط شما آماده‌ی رزرو است.\n${CITIES[parsedReserve.from].fa} به ${CITIES[parsedReserve.to].fa} - ${getDateString(parsedReserve.date, 'fa')} - ${getTimeString(parsedReserve.time, 'fa')} - ${result.fullPrice} - ${result.seat}\nhttps://www.alibaba.ir/train/${CITIES[parsedReserve.from].en}-${CITIES[parsedReserve.to].en}?adult=1&child=0&infant=0&departing=${new Date(parsedReserve.date).toLocaleDateString('fr-CA-u-ca-persian', { year: 'numeric', month: '2-digit', day: '2-digit' }).slice(0, 10)}&ticketType=Family&isExclusive=false&isTransitCar=false`,
         [[{ text: 'خریدم', callback_data: `buyConfirmbuy${id}` }, { text: 'دوباره', callback_data: `buyRetrybuy${id}` }]],
       )
     }
